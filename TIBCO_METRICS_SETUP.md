@@ -1,7 +1,10 @@
-# OTel TIBCO Metrics Receiver Configuration
+# OTel Collector Configuration
 
 ## Status
-✅ **ACTIVE** - OTel collector is running with both OTLP ingest and TIBCO EMS (ActiveMQ) metrics scraping.
+**ACTIVE** - The OTel Collector receives application OTLP traces and metrics.
+The current Splunk Collector image does not include an ActiveMQ receiver, so it
+does not scrape broker metrics. ActiveMQ statistics remain available from the
+Jolokia endpoint on port 8161.
 
 ## Architecture
 - **OTel Collector**: `quay.io/signalfx/splunk-otel-collector:latest` 
@@ -20,16 +23,11 @@
 ### 1. `otel-tibco-metrics.yaml` (OTel Receiver Config)
 - **Receivers**:
   - `otlp` on `0.0.0.0:4317` (gRPC) and `0.0.0.0:4318` (HTTP)
-  - `activemq` receiver to scrape broker statistics
-- **TIBCO Metrics Receiver (ActiveMQ)**:
-  - Endpoint: `http://petclinic-tibco:8161/api/jolokia`
-  - Collection Interval: 1 minute
-  - Initial Delay: 45 seconds
 - **Extensions**:
   - `health_check` on `0.0.0.0:13133`
 - **Pipelines**:
   - `traces`: `otlp -> batch -> splunk_otlp`
-  - `metrics`: `otlp + activemq -> batch -> splunk_otlp`
+  - `metrics`: `otlp -> batch -> splunk_otlp`
 
 ### 2. `run-collector.sh` (Startup Script)
 - Mounts `otel-tibco-metrics.yaml` into container at `/etc/otel/collector/tibco_metrics_config.yaml`

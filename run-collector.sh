@@ -33,11 +33,11 @@ fi
 
 CONTAINER_NAME="${SPLUNK_COLLECTOR_NAME:-splunk-otel-collector}"
 IMAGE="${SPLUNK_COLLECTOR_IMAGE:-quay.io/signalfx/splunk-otel-collector:latest}"
-# Local OTel config overlay with TIBCO metrics receiver
+# Local OTel gateway config overlay
 LOCAL_OTEL_CONFIG="$(dirname "$0")/otel-tibco-metrics.yaml"
 # Mount point inside the container
 CONTAINER_OTEL_CONFIG="/etc/otel/collector/tibco_metrics_config.yaml"
-# Use the mounted overlay config (which includes activemq receiver + exporters)
+# Use the mounted overlay config (OTLP receivers + Splunk exporters)
 SPLUNK_CONFIG_PATH="${SPLUNK_CONFIG:-$CONTAINER_OTEL_CONFIG}"
 SPLUNK_MEMORY_TOTAL_MIB="${SPLUNK_MEMORY_TOTAL_MIB:-512}"
 

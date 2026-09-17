@@ -82,8 +82,8 @@ where `PREFIX = "petclinic.rpc."` is prepended to each operation suffix above.
 
 - **Splunk Distribution of OpenTelemetry Java agent** — bootstrapped via `-javaagent`; sends traces + metrics + logs (disabled by default) to OTLP/HTTP `:4318`
 - **Splunk Distribution of OpenTelemetry Collector** — runs as a **Podman** container (`quay.io/signalfx/splunk-otel-collector:latest`) on `petclinic-net`; gateway mode that forwards to Splunk Observability Cloud (`realm=us1` by default)
-- **ActiveMQ metrics** — the Collector scrapes the ActiveMQ broker every 60 s via the `activemq` receiver in [`otel-tibco-metrics.yaml`](otel-tibco-metrics.yaml); metrics are forwarded to Splunk alongside APM data
-- **OpenTelemetry pipelines** — traces (OTLP/HTTP → Splunk), metrics (OTLP/HTTP → Splunk, includes ActiveMQ broker metrics), logs (HEC, requires Log Observer)
+- **ActiveMQ metrics** — not collected by the current Collector image because it does not include an `activemq` receiver; broker statistics remain available through Jolokia on `:8161`
+- **OpenTelemetry pipelines** — traces (OTLP/HTTP → Splunk), metrics (OTLP/HTTP → Splunk), logs (HEC, requires Log Observer)
 
 ### Runtime & Containerization
 
@@ -195,7 +195,6 @@ flowchart LR
     end
     BE -->|"OTLP http/protobuf<br/>localhost:4318"| COL
     FE -->|"OTLP http/protobuf<br/>localhost:4318"| COL
-    Tibco[(petclinic-tibco:8161)] -->|"activemq metrics<br/>every 60s"| COL
     COL["Splunk OTel Collector<br/>(Podman, gateway mode)"] -->|traces · otlp_http| Cloud[(Splunk Observability Cloud<br/>realm us1)]
     COL -->|metrics · otlp_http| Cloud
     COL -.->|logs · splunk_hec| Cloud
@@ -240,7 +239,7 @@ podman run -d --replace --name splunk-otel-collector --restart unless-stopped \
 | --------------------------- | ------------------------------------------------- | -------------------------------------------------------------- |
 | `SPLUNK_REALM`            | _(required)_                                    | Splunk O11y realm, e.g.`us1` — derives the cloud endpoints. |
 | `SPLUNK_ACCESS_TOKEN`     | _(required)_                                    | Org access token used to authenticate ingest.                  |
-| `SPLUNK_CONFIG`           | `/etc/otel/collector/tibco_metrics_config.yaml` | Mounted overlay config (OTLP + TIBCO metrics receivers).       |
+| `SPLUNK_CONFIG`           | `/etc/otel/collector/tibco_metrics_config.yaml` | Mounted overlay config (OTLP receivers + Splunk exporters).    |
 | `SPLUNK_MEMORY_TOTAL_MIB` | `512`                                           | Total memory budget for the`memory_limiter` processor.       |
 | `SPLUNK_LISTEN_INTERFACE` | `0.0.0.0`                                       | Bind address inside the container (so published ports work).   |
 | `SPLUNK_COLLECTOR_IMAGE`  | `quay.io/signalfx/splunk-otel-collector:latest` | Collector image to run.                                        |
@@ -253,25 +252,17 @@ and `13133` (health check).
 #### OTel Collector config: `otel-tibco-metrics.yaml`
 
 The Collector loads [`otel-tibco-metrics.yaml`](otel-tibco-metrics.yaml) (mounted
-at startup) instead of the stock `gateway_config.yaml`. This overlay adds the
-`activemq` receiver and wires both OTLP ingest and TIBCO/JMS metrics into the
-same pipelines:
+at startup) instead of the stock `gateway_config.yaml`. It wires OTLP ingest to
+the Splunk exporters:
 
 | Pipeline  | Receivers                    | Processors              | Exporters                     |
 | --------- | ---------------------------- | ----------------------- | ----------------------------- |
 | `traces`  | `otlp`                     | `attributes`, `batch` | `otlp_http/traces`          |
-| `metrics` | `otlp`, `activemq`         | `attributes`, `batch` | `otlp_http/metrics`, `debug` |
+| `metrics` | `otlp`                     | `attributes`, `batch` | `otlp_http/metrics`, `debug` |
 
-**ActiveMQ metrics receiver** (`activemq`):
-
-| Setting               | Value                     |
-| --------------------- | ------------------------- |
-| Endpoint              | `http://petclinic-tibco:8161/api/jolokia` |
-| Collection interval   | `1m`                    |
-| Initial delay         | `45s` (waits for broker startup) |
-
-> Use `initial_delay: 45s` to suppress `connect: connection refused` scrape errors
-> while the broker is still initialising.
+> The current Splunk Collector image does not bundle either the native
+> `activemq` receiver or the legacy `collectd/activemq` Smart Agent monitor.
+> Adding either one causes the Collector to reject the configuration and exit.
 
 **Bundled export endpoints** (all derived from `SPLUNK_REALM`):
 
