@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spring PetClinic (TIBCO + OTel) — Launcher</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56, 189, 248, 0.12);
+      --border: #334155;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
+    p.sub { color: var(--muted); margin: 0 0 1rem; text-align: center; }
+    .summary {
+      width: 100%;
+      max-width: 760px;
+      margin: 0 0 1.5rem;
+      padding: 1rem 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: linear-gradient(180deg, var(--accent-soft), rgba(15, 23, 42, 0.35));
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+      width: 100%;
+      max-width: 760px;
+    }
+    .card {
+      text-decoration: none;
+      color: inherit;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    a.card {
+      display: block;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    a.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .card h2 { margin: 0 0 0.4rem; font-size: 1.2rem; }
+    .card .url { color: var(--accent); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9rem; }
+    .card .desc { color: var(--muted); margin: 0.6rem 0 0; font-size: 0.9rem; line-height: 1.4; }
+    .card .creds { color: var(--muted); margin-top: 0.6rem; font-size: 0.8rem; }
+    .card .meta { color: var(--muted); margin-top: 0.75rem; font-size: 0.82rem; line-height: 1.5; }
+    .commands {
+      width: 100%;
+      max-width: 760px;
+      margin-top: 1.5rem;
+      padding: 1rem 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--card);
+    }
+    .commands h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+    .commands p { margin: 0.45rem 0; color: var(--muted); }
+    footer { color: var(--muted); font-size: 0.8rem; margin-top: 2rem; text-align: center; }
+    code { background: #0b1220; padding: 0.1rem 0.35rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Spring PetClinic — TIBCO + OTel Edition</h1>
+  <p class="sub">Local launcher for the current distributed stack</p>
+
+  <div class="summary">
+    Frontend requests now flow through the backend over TIBCO ActiveMatrix BusinessWorks / EMS (JMS), and observability is handled by a local Splunk OpenTelemetry Collector with ActiveMQ/JMS metrics enabled.
+  </div>
+
+  <div class="grid">
+    <a class="card" href="http://localhost:8080/" target="_blank" rel="noopener">
+      <h2>PetClinic UI</h2>
+      <span class="url">http://localhost:8080/</span>
+      <p class="desc">Thymeleaf frontend and requestor service. Browse owners, pets, visits, and vets through the distributed app.</p>
+    </a>
+
+    <a class="card" href="http://localhost:8081/actuator/health" target="_blank" rel="noopener">
+      <h2>Backend Health</h2>
+      <span class="url">http://localhost:8081/actuator/health</span>
+      <p class="desc">Spring Boot Actuator health for the persistence and TIBCO JMS replier service.</p>
+    </a>
+
+    <a class="card" href="http://localhost:13133/" target="_blank" rel="noopener">
+      <h2>OTel Collector Health</h2>
+      <span class="url">http://localhost:13133/</span>
+      <p class="desc">Health endpoint for the local Splunk OpenTelemetry Collector that receives app telemetry and ActiveMQ metrics.</p>
+      <p class="meta">OTLP endpoints: <code>localhost:4317</code> and <code>localhost:4318</code></p>
+    </a>
+
+    <div class="card">
+      <h2>TIBCO EMS Broker</h2>
+      <span class="url">localhost:61616</span>
+      <p class="desc">JMS broker (ActiveMQ mimicking TIBCO EMS) used by the frontend/backend request-reply flow and the Collector's metrics receiver.</p>
+      <p class="meta">Container: <code>petclinic-tibco</code><br />Metrics config: <a href="TIBCO_METRICS_SETUP.md">TIBCO_METRICS_SETUP.md</a></p>
+    </div>
+  </div>
+
+  <div class="commands">
+    <h2>Quick Start</h2>
+    <p><code>./run-all.sh</code> starts TIBCO, backend, and frontend.</p>
+    <p><code>./run-collector.sh up</code> starts the Splunk OTel Collector with <code>otel-tibco-metrics.yaml</code>.</p>
+    <p><code>./run-otel.sh</code> launches the apps with the Splunk OTel Java agent attached.</p>
+  </div>
+
+  <footer>
+    Use <code>./stop-all.sh</code> to stop the apps and <code>./run-collector.sh down</code> to remove the collector container.
+  </footer>
+</body>
+</html>

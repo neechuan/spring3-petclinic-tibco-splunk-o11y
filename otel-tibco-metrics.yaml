@@ -1,0 +1,56 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  activemq:
+    endpoint: http://petclinic-tibco:8161/api/jolokia
+    collection_interval: 1m
+    initial_delay: 45s
+
+exporters:
+  otlp_http/traces:
+    traces_endpoint: https://ingest.${SPLUNK_REALM}.signalfx.com/v2/trace/otlp
+    headers:
+      X-SF-Token: ${SPLUNK_ACCESS_TOKEN}
+
+  otlp_http/metrics:
+    metrics_endpoint: https://ingest.${SPLUNK_REALM}.observability.splunkcloud.com/v2/datapoint/otlp
+    headers:
+      X-SF-Token: ${SPLUNK_ACCESS_TOKEN}
+  
+  debug:
+    verbosity: detailed
+
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+  attributes:
+    actions:
+      - key: deployment.environment
+        value: lab
+        action: insert
+      - key: service.version
+        value: 1.0
+        action: insert
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [attributes, batch]
+      exporters: [otlp_http/traces]
+
+    metrics:
+      receivers: [otlp, activemq]
+      processors: [attributes, batch]
+      exporters: [debug, otlp_http/metrics]
