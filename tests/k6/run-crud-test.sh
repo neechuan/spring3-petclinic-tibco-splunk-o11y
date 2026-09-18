@@ -15,7 +15,7 @@ command -v k6 >/dev/null 2>&1 || { echo "ERROR: k6 is not installed (brew instal
 echo "Checking frontend at ${BASE_URL} ..."
 code="$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/" || echo 000)"
 if [[ "${code}" != "200" ]]; then
-  echo "ERROR: frontend not reachable at ${BASE_URL} (HTTP ${code}). Start it first (e.g. ./run-otel.sh apps)." >&2
+  echo "ERROR: frontend not reachable at ${BASE_URL} (HTTP ${code}). Start it first (e.g. ./run-all-otel.sh apps)." >&2
   exit 1
 fi
 

@@ -82,14 +82,14 @@ where `PREFIX = "petclinic.rpc."` is prepended to each operation suffix above.
 
 - **Splunk Distribution of OpenTelemetry Java agent** — bootstrapped via `-javaagent`; sends traces + metrics + logs (disabled by default) to OTLP/HTTP `:4318`
 - **Splunk Distribution of OpenTelemetry Collector** — runs as a **Podman** container (`quay.io/signalfx/splunk-otel-collector:latest`) on `petclinic-net`; gateway mode that forwards to Splunk Observability Cloud (`realm=us1` by default)
-- **ActiveMQ metrics** — not collected by the current Collector image because it does not include an `activemq` receiver; broker statistics remain available through Jolokia on `:8161`
+- **ActiveMQ/TIBCO EMS metrics** — not collected by the current Collector configuration. Broker statistics remain available through Jolokia on `:8161`, but `otel-tibco-metrics.yaml` does not query that endpoint.
 - **OpenTelemetry pipelines** — traces (OTLP/HTTP → Splunk), metrics (OTLP/HTTP → Splunk), logs (HEC, requires Log Observer)
 
 ### Runtime & Containerization
 
 - **Podman v6.0.2+** — container orchestration (macOS: applehv VM `podman-machine-default`, rootless)
 - **`petclinic-net`** — custom Podman network shared by the TIBCO (ActiveMQ) and OTel Collector containers for DNS resolution (`petclinic-tibco`)
-- **Scripting** — bash orchestration (`run-all.sh`, `run-otel.sh`, `run-collector.sh`, `stop-all.sh`)
+- **Scripting** — bash orchestration (`run-all.sh`, `run-all-otel.sh`, `run-collector.sh`, `stop-all.sh`)
 - **Ports:**
   - Frontend: `:8080`
   - Backend: `:8081`
@@ -126,6 +126,13 @@ waits for it, then brings up the apps in order:
 ./run-all.sh frontend   # just the frontend (foreground, live logs, Ctrl+C stops)
 ```
 
+The frontend and backend are **not containerized** in the standard workflow.
+`run-all.sh` starts both applications as host JVM processes through Maven, while
+the TIBCO EMS broker runs in a detached Podman container. Because the apps run on
+the host, both use the default broker URL `tcp://localhost:61616` from their
+`application.properties` files; no `-e SPRING_ACTIVEMQ_BROKER_URL` option is
+needed.
+
 - A **single** requested app runs in the foreground with live logs (Ctrl+C stops it).
 - **Multiple** apps run in the background with logs written to [`logs/`](logs) and
   are stopped together with Ctrl+C.
@@ -144,16 +151,16 @@ frontend, backend, tibco):
 ### Running with the Splunk OpenTelemetry Java agent
 
 To bring the stack up with each app instrumented by the **Splunk Distribution of
-OpenTelemetry Java agent**, use **`run-otel.sh`** instead of `run-all.sh`. It
+OpenTelemetry Java agent**, use **`run-all-otel.sh`** instead of `run-all.sh`. It
 launches the packaged Spring Boot fat jars directly (one JVM per app) with
 `-javaagent` bootstrapped, so each app reports as its own service in Splunk APM:
 
 ```bash
-./run-otel.sh            # broker + backend + frontend, agent attached (default)
-./run-otel.sh apps       # backend then frontend (broker already up)
-./run-otel.sh backend    # just the backend (foreground, live logs)
-./run-otel.sh build      # force a `mvn package` rebuild before starting
-OTEL_ENABLED=false ./run-otel.sh apps   # run the jars without the agent
+./run-all-otel.sh            # broker + backend + frontend, agent attached (default)
+./run-all-otel.sh apps       # backend then frontend (broker already up)
+./run-all-otel.sh backend    # just the backend (foreground, live logs)
+./run-all-otel.sh build      # force a `mvn package` rebuild before starting
+OTEL_ENABLED=false ./run-all-otel.sh apps   # run the jars without the agent
 ```
 
 The script launches the apps as packaged Spring Boot fat jars (not via Maven) with the Splunk OTel Java agent attached via `-javaagent`. Each app reports to Splunk APM as its own service:
@@ -163,11 +170,11 @@ The script launches the apps as packaged Spring Boot fat jars (not via Maven) wi
 
 **Runtime environment:** Apps run on the bundled **Azul Zulu 17.0.19** JRE in [`jre/`](jre); override with `JAVA_HOME` if needed.
 
-**Telemetry routing:** Traces and metrics are always sent to the **local Collector** on `localhost:4318` (OTLP/HTTP). Logs are disabled by default (see the [logs caveat](#collector-logs-a-404-not-found-on-v1log-and-drops-data) below). The script forces `-Dsplunk.realm=none` on the agent to prevent a `SPLUNK_REALM` value in `.env` from making the agent bypass the Collector and send directly to Splunk. If the Collector is not already running, `run-otel.sh` starts it automatically (see [The Splunk OpenTelemetry Collector](#the-splunk-opentelemetry-collector) below).
+**Telemetry routing:** Traces and metrics are always sent to the **local Collector** on `localhost:4318` (OTLP/HTTP). Logs are disabled by default (see the [logs caveat](#collector-logs-a-404-not-found-on-v1log-and-drops-data) below). The script forces `-Dsplunk.realm=none` on the agent to prevent a `SPLUNK_REALM` value in `.env` from making the agent bypass the Collector and send directly to Splunk. If the Collector is not already running, `run-all-otel.sh` starts it automatically (see [The Splunk OpenTelemetry Collector](#the-splunk-opentelemetry-collector) below).
 
-**Configuration:** Agent settings are in a config block at the top of `run-otel.sh` and can be overridden from the environment (e.g. `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_LOGS_EXPORTER`). For defaults, see the [Observability defaults table](#observability-defaults-in-run-otelsh) above.
+**Configuration:** Agent settings are in a config block at the top of `run-all-otel.sh` and can be overridden from the environment (e.g. `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_LOGS_EXPORTER`). For defaults, see the [Observability defaults table](#observability-defaults-in-run-all-otelsh) above.
 
-**Credentials:** The realm and access token belong to the **Collector**, not the agent. Both `run-otel.sh` and `run-collector.sh` auto-load them from a gitignored **`.env`** file in the repo root — copy [`.env.example`](.env.example) to `.env` and fill in your Splunk realm and org access token.
+**Credentials:** The realm and access token belong to the **Collector**, not the agent. Both `run-all-otel.sh` and `run-collector.sh` auto-load them from a gitignored **`.env`** file in the repo root — copy [`.env.example`](.env.example) to `.env` and fill in your Splunk realm and org access token.
 
 **Stopping:** Use `./stop-all.sh` to stop the apps and broker (the Collector stays running). Stop just the Collector with `./run-collector.sh stop`.
 
@@ -185,7 +192,9 @@ browser for quick links, or go straight to:
 Instead of shipping telemetry from each JVM straight to Splunk Observability
 Cloud, the apps export to a **local Splunk Distribution of the OpenTelemetry
 Collector** running as a Podman container on `petclinic-net`. The Collector fans
-the data out to the cloud and also scrapes TIBCO EMS (ActiveMQ) broker metrics directly:
+application traces and OTLP metrics out to the cloud. It does **not** scrape
+TIBCO EMS (ActiveMQ) broker metrics; the broker's Jolokia statistics endpoint on
+`:8161` is available for a future/custom metrics integration:
 
 ```mermaid
 flowchart LR
@@ -208,13 +217,14 @@ flowchart LR
 ./run-collector.sh logs     # follow the Collector logs
 ./run-collector.sh restart  # stop then start the Collector
 ./run-collector.sh stop     # stop and remove the Collector container
+./tail-otel-collector.sh --debug  # restart with debug logging, then follow logs
 ```
 
 > Aliases: `up` = `start`, `down` = `stop` (backward-compatible with older scripts).
 
-`run-otel.sh` also calls the Collector automatically: before it launches the app
+`run-all-otel.sh` also calls the Collector automatically: before it launches the app
 JVMs it checks the health endpoint and runs `./run-collector.sh start` if nothing is
-listening, so `./run-otel.sh` is enough to bring up the whole pipeline.
+listening, so `./run-all-otel.sh` is enough to bring up the whole pipeline.
 
 **How it starts.** `run-collector.sh start` runs the image detached with a restart
 policy on `petclinic-net`, mounts [`otel-tibco-metrics.yaml`](otel-tibco-metrics.yaml)
@@ -241,6 +251,7 @@ podman run -d --replace --name splunk-otel-collector --restart unless-stopped \
 | `SPLUNK_ACCESS_TOKEN`     | _(required)_                                    | Org access token used to authenticate ingest.                  |
 | `SPLUNK_CONFIG`           | `/etc/otel/collector/tibco_metrics_config.yaml` | Mounted overlay config (OTLP receivers + Splunk exporters).    |
 | `SPLUNK_MEMORY_TOTAL_MIB` | `512`                                           | Total memory budget for the`memory_limiter` processor.       |
+| `OTEL_COLLECTOR_LOG_LEVEL` | `info`                                          | Collector internal log level; use `debug` for troubleshooting. |
 | `SPLUNK_LISTEN_INTERFACE` | `0.0.0.0`                                       | Bind address inside the container (so published ports work).   |
 | `SPLUNK_COLLECTOR_IMAGE`  | `quay.io/signalfx/splunk-otel-collector:latest` | Collector image to run.                                        |
 | `SPLUNK_COLLECTOR_NAME`   | `splunk-otel-collector`                         | Container name.                                                |
@@ -278,7 +289,7 @@ the Splunk exporters:
 >
 > **Logs caveat:** Splunk Observability Cloud only ingests logs when the org has
 > **Log Observer** (a valid `SPLUNK_HEC_URL` + HEC token); otherwise the
-> `splunk_hec` exporter 404s on `/v1/log` and drops the data. `run-otel.sh`
+> `splunk_hec` exporter 404s on `/v1/log` and drops the data. `run-all-otel.sh`
 > therefore ships **traces and metrics only** by default (`OTEL_LOGS_EXPORTER=none`).
 > Wire a working `SPLUNK_HEC_URL`/`SPLUNK_HEC_TOKEN` into the Collector and start
 > the apps with `OTEL_LOGS_EXPORTER=otlp` to forward logs as well.
@@ -363,9 +374,9 @@ Both apps read their broker coordinates from `spring.activemq.*` properties in t
 
 Override them with environment variables when pointing at a different broker.
 
-### Observability defaults in `run-otel.sh`
+### Observability defaults in `run-all-otel.sh`
 
-When using `./run-otel.sh`, the bundled Splunk OpenTelemetry Java agent applies these
+When using `./run-all-otel.sh`, the bundled Splunk OpenTelemetry Java agent applies these
 defaults (override from environment):
 
 | Variable                        | Default                                            | Purpose                                                |
@@ -420,7 +431,7 @@ only accepts that endpoint when the org has **Log Observer** provisioned (a vali
 `SPLUNK_HEC_URL` + HEC token). Without it, every log batch 404s, is retried, and
 then dropped. Traces and metrics are unaffected.
 
-**Fix** — `run-otel.sh` disables agent log export by default
+**Fix** — `run-all-otel.sh` disables agent log export by default
 (`OTEL_LOGS_EXPORTER=none`, passed to the agent as `-Dotel.logs.exporter=none`), so
 no logs reach the Collector and there is nothing for `splunk_hec` to drop. The
 change only takes effect on app **restart**; if the Collector is still retrying a
@@ -431,7 +442,7 @@ queued batch, restart it too with `./run-collector.sh restart`.
 then start the apps with log export turned back on:
 
 ```bash
-OTEL_LOGS_EXPORTER=otlp ./run-otel.sh
+OTEL_LOGS_EXPORTER=otlp ./run-all-otel.sh
 ```
 
 Verify the errors are gone after restarting:
@@ -440,21 +451,54 @@ Verify the errors are gone after restarting:
 podman logs splunk-otel-collector 2>&1 | grep -aE 'splunk_hec|/v1/log|404|Dropping data'
 ```
 
-### TIBCO EMS metrics: `connect: connection refused` during Collector startup
+### TIBCO EMS metrics
 
-**Symptom** — the Collector logs show scrape errors on the `activemq` receiver
-shortly after starting:
+TIBCO EMS is represented locally by an ActiveMQ broker. Its Jolokia statistics
+endpoint is available on `http://localhost:8161`, but the current
+[`otel-tibco-metrics.yaml`](otel-tibco-metrics.yaml) does not scrape or export
+those broker metrics. The Collector image used here does not include an
+ActiveMQ receiver or the legacy `collectd/activemq` monitor, so adding either
+receiver to this configuration would cause the Collector to reject the config.
 
+#### Inspecting the broker through Jolokia
+
+The Jolokia base URL from the host is:
+
+```text
+http://localhost:8161/api/jolokia
 ```
-Failed to scrape ... dial tcp petclinic-tibco:8161: connect: connection refused
+
+From another container on `petclinic-net`, use
+`http://petclinic-tibco:8161/api/jolokia` instead. The ActiveMQ Web Console
+and Jolokia endpoint require HTTP Basic authentication. This image also
+rejects requests with a null origin, so the examples include an explicit
+same-origin `Origin` header. Set the broker credentials before running them:
+
+```bash
+AMQ_USER=admin
+AMQ_PASSWORD=admin
 ```
 
-**Cause** — the `activemq` receiver starts scraping immediately and the TIBCO EMS 
-(ActiveMQ) broker has not yet finished initialising.
+Run all Jolokia checks with the repository script. It reads the credentials
+strictly from the repository `.env` file and lists every JMS queue with its
+key statistics:
 
-**Fix** — [`otel-tibco-metrics.yaml`](otel-tibco-metrics.yaml) sets
-`initial_delay: 45s` on the receiver. If you still see errors, increase this value.
-The errors are transient and stop once the broker is accepting connections.
+```bash
+./check-tibco-jolokia.sh
+```
+
+The script checks Jolokia authentication, reads broker status and aggregate
+statistics, and reads the `petclinic.rpc.owner.findById` queue. The underlying
+Jolokia read requests use the path-based form required by this ActiveMQ image:
+
+```bash
+curl -u "$AMQ_USER:$AMQ_PASSWORD" \
+  -H 'Origin: http://localhost:8161' \
+  http://localhost:8161/api/jolokia/read/org.apache.activemq:type=Broker,brokerName=localhost | jq
+```
+
+These Jolokia queries are for manual health and status inspection only. They
+do not feed metrics into the OTel Collector or Splunk Observability Cloud.
 
 ### Backend or frontend cannot connect to TIBCO EMS
 
@@ -493,10 +537,11 @@ podman logs -f splunk-otel-collector      # or: ./run-collector.sh logs
 podman inspect splunk-otel-collector
 ```
 
-## Building container images
+## Optional: Running the applications as containers
 
-There is no `Dockerfile`. Build an OCI image for each app with the Spring Boot
-build plugin:
+The standard workflow above runs the frontend and backend on the host. If you
+prefer to run the applications as OCI containers, build an image for each app
+with the Spring Boot build plugin. There is no `Dockerfile`:
 
 ```bash
 mvn -f backend/pom.xml spring-boot:build-image
@@ -512,7 +557,18 @@ podman run --network petclinic-net \
   docker.io/library/spring-petclinic-backend:4.0.0-SNAPSHOT
 ```
 
-Run the frontend image similarly with `-e SPRING_ACTIVEMQ_BROKER_URL=tcp://petclinic-tibco:61616 -p 8080:8080`.
+Run the frontend image similarly:
+
+```bash
+podman run --network petclinic-net \
+  -e SPRING_ACTIVEMQ_BROKER_URL=tcp://petclinic-tibco:61616 \
+  -p 8080:8080 \
+  docker.io/library/spring-petclinic-frontend:4.0.0-SNAPSHOT
+```
+
+The `-e SPRING_ACTIVEMQ_BROKER_URL=...` option is required in this alternative
+containerized mode because `localhost` would refer to the application container,
+not the TIBCO EMS container.
 
 ## License
 

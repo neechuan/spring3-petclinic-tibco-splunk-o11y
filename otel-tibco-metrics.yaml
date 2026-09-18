@@ -39,6 +39,9 @@ extensions:
 
 service:
   extensions: [health_check]
+  telemetry:
+    logs:
+      level: ${OTEL_COLLECTOR_LOG_LEVEL}
   pipelines:
     traces:
       receivers: [otlp]

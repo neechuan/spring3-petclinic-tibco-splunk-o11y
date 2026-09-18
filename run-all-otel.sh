@@ -34,7 +34,7 @@ fi
 # ===========================================================================
 # Splunk OpenTelemetry Java agent configuration
 # Every value can be overridden from the environment, e.g.
-#   OTEL_SERVICE_NAME=my-app ./run-otel.sh
+#   OTEL_SERVICE_NAME=my-app ./run-all-otel.sh
 # Set OTEL_ENABLED=false to run the jars without the agent.
 # ===========================================================================
 OTEL_ENABLED="${OTEL_ENABLED:-true}"
@@ -72,7 +72,7 @@ fi
 
 usage() {
   cat <<'EOF'
-Usage: ./run-otel.sh [target ...]
+Usage: ./run-all-otel.sh [target ...]
 
 Targets:
   tibco      Start the TIBCO EMS broker (detached container)
@@ -83,10 +83,10 @@ Targets:
   build      Force a `mvn package` rebuild of the jars before starting
 
 Examples:
-  ./run-otel.sh                 # broker + both apps, OTel agent attached
-  ./run-otel.sh apps            # backend then frontend (broker already up)
-  ./run-otel.sh backend         # just the backend (live logs; Ctrl+C to stop)
-  OTEL_ENABLED=false ./run-otel.sh apps   # run without the agent
+  ./run-all-otel.sh                 # broker + both apps, OTel agent attached
+  ./run-all-otel.sh apps            # backend then frontend (broker already up)
+  ./run-all-otel.sh backend         # just the backend (live logs; Ctrl+C to stop)
+  OTEL_ENABLED=false ./run-all-otel.sh apps   # run without the agent
   ./run-collector.sh up                   # start the collector the agent ships to
 
 Stop everything with ./stop-all.sh (stops by port; works for these jars too).

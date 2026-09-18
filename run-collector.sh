@@ -10,7 +10,7 @@
 #
 # To send the apps THROUGH this collector instead of straight to o11y cloud,
 # start them with the realm unset and OTLP pointed at the collector, e.g.
-#   SPLUNK_REALM= OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 ./run-otel.sh apps
+#   SPLUNK_REALM= OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 ./run-all-otel.sh apps
 #
 # Usage:
 #   ./run-collector.sh [start|stop|status|restart|logs]
@@ -40,13 +40,14 @@ CONTAINER_OTEL_CONFIG="/etc/otel/collector/tibco_metrics_config.yaml"
 # Use the mounted overlay config (OTLP receivers + Splunk exporters)
 SPLUNK_CONFIG_PATH="${SPLUNK_CONFIG:-$CONTAINER_OTEL_CONFIG}"
 SPLUNK_MEMORY_TOTAL_MIB="${SPLUNK_MEMORY_TOTAL_MIB:-512}"
+OTEL_COLLECTOR_LOG_LEVEL="${OTEL_COLLECTOR_LOG_LEVEL:-info}"
 
 cmd="${1:-start}"
 
 start_collector() {
   : "${SPLUNK_REALM:?set SPLUNK_REALM in .env (e.g. us1)}"
   : "${SPLUNK_ACCESS_TOKEN:?set SPLUNK_ACCESS_TOKEN in .env}"
-  echo "Starting $CONTAINER_NAME (realm=$SPLUNK_REALM, config=$SPLUNK_CONFIG_PATH)..."
+  echo "Starting $CONTAINER_NAME (realm=$SPLUNK_REALM, config=$SPLUNK_CONFIG_PATH, log-level=$OTEL_COLLECTOR_LOG_LEVEL)..."
   podman run -d --replace --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     --network petclinic-net \
@@ -55,6 +56,7 @@ start_collector() {
     -e SPLUNK_REALM \
     -e SPLUNK_CONFIG="$SPLUNK_CONFIG_PATH" \
     -e SPLUNK_MEMORY_TOTAL_MIB="$SPLUNK_MEMORY_TOTAL_MIB" \
+    -e OTEL_COLLECTOR_LOG_LEVEL \
     -e SPLUNK_LISTEN_INTERFACE=0.0.0.0 \
     -p 4317:4317 \
     -p 4318:4318 \

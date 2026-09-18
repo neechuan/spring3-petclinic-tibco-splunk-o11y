@@ -16,7 +16,47 @@ Jolokia endpoint on port 8161.
   - Container: `petclinic-tibco`
   - Ports:
     - 61616 for JMS clients (frontend/backend)
-    - 8161 for Web console and Jolokia api (e.g., collector)
+    - 8161 for Web console and Jolokia API (available for manual inspection or a future/custom metrics integration)
+
+## Jolokia Health and Status Checks
+
+The broker exposes Jolokia at:
+
+```text
+http://localhost:8161/api/jolokia
+```
+
+Use `http://petclinic-tibco:8161/api/jolokia` when querying from another
+container on `petclinic-net`. The endpoint requires the ActiveMQ Web Console's
+HTTP Basic credentials and rejects requests with a null origin, so the examples
+include an explicit same-origin `Origin` header:
+
+```bash
+AMQ_USER=admin
+AMQ_PASSWORD=admin
+```
+
+Run all Jolokia checks with the repository script. It reads the credentials
+strictly from the repository `.env` file and lists every JMS queue with its
+key statistics:
+
+```bash
+./check-tibco-jolokia.sh
+```
+
+The script checks Jolokia authentication, reads broker status and aggregate
+statistics, and reads the `petclinic.rpc.owner.findById` queue. For a direct
+broker read, use Jolokia's path-based syntax:
+
+```bash
+curl -u "$AMQ_USER:$AMQ_PASSWORD" \
+  -H 'Origin: http://localhost:8161' \
+  http://localhost:8161/api/jolokia/read/org.apache.activemq:type=Broker,brokerName=localhost | jq
+```
+
+These queries inspect the broker directly. The current
+`otel-tibco-metrics.yaml` does not query Jolokia, so the returned values are not
+exported to the OTel Collector or Splunk Observability Cloud.
 
 ## Configuration Files
 

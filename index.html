@@ -109,9 +109,9 @@
     </a>
 
     <div class="card">
-      <h2>TIBCO EMS Broker</h2>
-      <span class="url">localhost:61616</span>
-      <p class="desc">JMS broker (ActiveMQ mimicking TIBCO EMS) used by the frontend/backend request-reply flow and the Collector's metrics receiver.</p>
+      <h2>TIBCO JMS Status</h2>
+      <a class="url" href="http://localhost:8161/" target="_blank" rel="noopener">http://localhost:8161/</a>
+      <p class="desc">Broker status and web console for the ActiveMQ instance mimicking TIBCO EMS and serving the frontend/backend request-reply flow.</p>
       <p class="meta">Container: <code>petclinic-tibco</code><br />Metrics config: <a href="TIBCO_METRICS_SETUP.md">TIBCO_METRICS_SETUP.md</a></p>
     </div>
   </div>
@@ -120,7 +120,7 @@
     <h2>Quick Start</h2>
     <p><code>./run-all.sh</code> starts TIBCO, backend, and frontend.</p>
     <p><code>./run-collector.sh up</code> starts the Splunk OTel Collector with <code>otel-tibco-metrics.yaml</code>.</p>
-    <p><code>./run-otel.sh</code> launches the apps with the Splunk OTel Java agent attached.</p>
+    <p><code>./run-all-otel.sh</code> launches the apps with the Splunk OTel Java agent attached.</p>
   </div>
 
   <footer>
