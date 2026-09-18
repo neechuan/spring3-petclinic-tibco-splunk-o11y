@@ -1,10 +1,8 @@
 # OTel Collector Configuration
 
 ## Status
-**ACTIVE** - The OTel Collector receives application OTLP traces and metrics.
-The current Splunk Collector image does not include an ActiveMQ receiver, so it
-does not scrape broker metrics. ActiveMQ statistics remain available from the
-Jolokia endpoint on port 8161.
+**ACTIVE** - The OTel Collector receives application OTLP traces and metrics,
+and scrapes ActiveMQ broker metrics from the JMX Prometheus exporter.
 
 ## Architecture
 - **OTel Collector**: `quay.io/signalfx/splunk-otel-collector:latest` 
@@ -16,7 +14,13 @@ Jolokia endpoint on port 8161.
   - Container: `petclinic-tibco`
   - Ports:
     - 61616 for JMS clients (frontend/backend)
-    - 8161 for Web console and Jolokia API (available for manual inspection or a future/custom metrics integration)
+    - 8161 for Web console and Jolokia API
+    - 1099 for internal remote JMX access
+
+- **ActiveMQ JMX Prometheus exporter**: `docker.io/bitnami/jmx-exporter:latest`
+  - Container: `petclinic-activemq-exporter`
+  - Port: 9404 for Prometheus metrics
+  - The exporter and Collector communicate over `petclinic-net`.
 
 ## Jolokia Health and Status Checks
 
@@ -54,20 +58,21 @@ curl -u "$AMQ_USER:$AMQ_PASSWORD" \
   http://localhost:8161/api/jolokia/read/org.apache.activemq:type=Broker,brokerName=localhost | jq
 ```
 
-These queries inspect the broker directly. The current
-`otel-tibco-metrics.yaml` does not query Jolokia, so the returned values are not
-exported to the OTel Collector or Splunk Observability Cloud.
+These queries inspect the broker directly through Jolokia. The metrics pipeline
+uses JMX rather than Jolokia: the exporter reads the same broker MBeans and the
+Collector scrapes `petclinic-activemq-exporter:9404`.
 
 ## Configuration Files
 
 ### 1. `otel-tibco-metrics.yaml` (OTel Receiver Config)
 - **Receivers**:
   - `otlp` on `0.0.0.0:4317` (gRPC) and `0.0.0.0:4318` (HTTP)
+  - `prometheus/activemq` scraping the JMX exporter every 15 seconds
 - **Extensions**:
   - `health_check` on `0.0.0.0:13133`
 - **Pipelines**:
   - `traces`: `otlp -> batch -> splunk_otlp`
-  - `metrics`: `otlp -> batch -> splunk_otlp`
+  - `metrics`: `otlp + prometheus/activemq -> batch -> splunk_otlp`
 
 ### 2. `run-collector.sh` (Startup Script)
 - Mounts `otel-tibco-metrics.yaml` into container at `/etc/otel/collector/tibco_metrics_config.yaml`

@@ -14,6 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 TIBCO_CONTAINER="${TIBCO_CONTAINER:-petclinic-tibco}"
+ACTIVEMQ_EXPORTER_CONTAINER="${ACTIVEMQ_EXPORTER_CONTAINER:-petclinic-activemq-exporter}"
 
 usage() {
   cat <<'EOF'
@@ -71,6 +72,10 @@ stop_port() {
 }
 
 stop_tibco() {
+  if podman container exists "$ACTIVEMQ_EXPORTER_CONTAINER" 2>/dev/null; then
+    podman rm -f "$ACTIVEMQ_EXPORTER_CONTAINER" >/dev/null
+    echo "ActiveMQ metrics exporter stopped."
+  fi
   if podman container exists "$TIBCO_CONTAINER" 2>/dev/null; then
     echo "Stopping TIBCO EMS broker '$TIBCO_CONTAINER'..."
     podman rm -f "$TIBCO_CONTAINER" >/dev/null

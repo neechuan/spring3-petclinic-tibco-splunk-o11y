@@ -85,11 +85,23 @@ wait_for_http() { # <name> <url>
 run_tibco() {
   local name="${TIBCO_CONTAINER:-petclinic-tibco}"
   local image="${TIBCO_IMAGE:-docker.io/apache/activemq-classic:latest}"
+  local exporter_name="${ACTIVEMQ_EXPORTER_CONTAINER:-petclinic-activemq-exporter}"
+  local exporter_image="${ACTIVEMQ_EXPORTER_IMAGE:-docker.io/bitnami/jmx-exporter:latest}"
+  local exporter_config="$(pwd)/activemq-jmx-exporter.yaml"
+  local jmx_opts='-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=1099 -Dcom.sun.management.jmxremote.rmi.port=1099 -Djava.rmi.server.hostname=petclinic-tibco -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false'
+
   if podman container exists "$name"; then
-    podman start "$name"
-  else
+    if ! podman inspect "$name" --format '{{json .Config.Env}}' | grep -Fq -- '-Dcom.sun.management.jmxremote.port=1099'; then
+      echo "Recreating '$name' with remote JMX enabled for metrics..."
+      podman rm -f "$name" >/dev/null
+    else
+      podman start "$name" >/dev/null
+    fi
+  fi
+  if ! podman container exists "$name"; then
     podman run -d --name "$name" \
       --network petclinic-net \
+      -e "ACTIVEMQ_OPTS=-Xms64M -Xmx1G -Djava.util.logging.config.file=logging.properties -Djava.security.auth.login.config=/opt/apache-activemq/conf/login.config -Djetty.host=0.0.0.0 $jmx_opts" \
       -p 61616:61616 \
       -p 8161:8161 \
       "$image"
@@ -100,6 +112,13 @@ run_tibco() {
     if nc -z localhost 61616 2>/dev/null; then echo " open."; break; fi
     printf '.'; sleep 2
   done
+
+  podman run -d --replace --name "$exporter_name" \
+    --network petclinic-net \
+    -p 9404:9404 \
+    -v "$exporter_config:/opt/bitnami/jmx-exporter/config.yaml:ro" \
+    "$exporter_image" 9404 config.yaml >/dev/null
+  echo "ActiveMQ JMX exporter '$exporter_name' serving metrics on the collector network (port 9404)."
 }
 
 # start_app_bg <name> <pom-dir> <health-url>

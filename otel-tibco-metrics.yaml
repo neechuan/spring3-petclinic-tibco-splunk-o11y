@@ -6,6 +6,14 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+  prometheus/activemq:
+    config:
+      scrape_configs:
+        - job_name: activemq
+          scrape_interval: 15s
+          static_configs:
+            - targets: [petclinic-activemq-exporter:9404]
+
 exporters:
   otlp_http/traces:
     traces_endpoint: https://ingest.${SPLUNK_REALM}.signalfx.com/v2/trace/otlp
@@ -49,6 +57,6 @@ service:
       exporters: [otlp_http/traces]
 
     metrics:
-      receivers: [otlp]
+      receivers: [otlp, prometheus/activemq]
       processors: [attributes, batch]
       exporters: [debug, otlp_http/metrics]

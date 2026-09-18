@@ -22,6 +22,8 @@ flowchart LR
 
     Frontend -->|OTLP/HTTP 4318| Collector[Splunk OTel Collector]
     Backend -->|OTLP/HTTP 4318| Collector
+    Broker -->|JMX :1099| Exporter[JMX Prometheus Exporter :9404]
+    Exporter -->|Prometheus scrape| Collector
     Collector --> Cloud[Splunk Observability Cloud]
 ```
 
@@ -141,6 +143,8 @@ Ports used by the stack:
 - Backend: `8081`
 - ActiveMQ / JMS: `61616`
 - ActiveMQ admin / Jolokia: `8161`
+- ActiveMQ remote JMX: `1099` (container network only)
+- ActiveMQ Prometheus exporter: `9404`
 - OTLP gRPC: `4317`
 - OTLP HTTP: `4318`
 - Collector health: `13133`
@@ -169,7 +173,12 @@ A local OpenTelemetry Collector sits between the app JVMs and Splunk Observabili
 
 ### Broker and metrics behavior
 
-The broker itself exposes Jolokia endpoints on port `8161` for monitoring, but the current collector configuration does not automatically scrape ActiveMQ statistics. In other words, the application and its telemetry are designed around JVM-level instrumentation rather than broker-level scraping.
+The broker exposes Jolokia endpoints on port `8161` for direct inspection and
+remote JMX on port `1099` inside `petclinic-net`. The companion JMX Prometheus
+exporter reads ActiveMQ broker and destination MBeans and serves Prometheus
+metrics on port `9404`. The Collector's `prometheus/activemq` receiver scrapes
+that endpoint every 15 seconds and forwards the metrics to Splunk Observability
+Cloud alongside application telemetry.
 
 ## 7. Design rationale
 

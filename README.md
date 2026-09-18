@@ -18,6 +18,9 @@ flowchart LR
     Frontend -->|"request/reply<br/>petclinic.rpc.*"| Tibco[(TIBCO EMS\nJMS Broker)]
     Tibco --> Backend
     Backend -->|JPA| HSQLDB[(HSQLDB in-memory)]
+    Tibco -->|JMX :1099| Exporter[JMX Prometheus Exporter]
+    Exporter -->|Prometheus :9404| Collector[OTel Collector]
+    Collector -->|OTLP metrics| Cloud[Splunk Observability Cloud]
 ```
 
 - The **frontend** sends a request to `petclinic.rpc.<operation>` and blocks on the
@@ -76,13 +79,14 @@ where `PREFIX = "petclinic.rpc."` is prepended to each operation suffix above.
 - **Ports:**
   - `61616` — JMS listener (for frontend and backend apps)
   - `8161` — Web admin UI and Jolokia statistics REST endpoint
+  - `1099` — internal remote JMX endpoint used by the metrics exporter
 - **Queue pattern:** `petclinic.rpc.<operation>` — frontend requestor, backend replier
 
 ### Observability
 
 - **Splunk Distribution of OpenTelemetry Java agent** — bootstrapped via `-javaagent`; sends traces + metrics + logs (disabled by default) to OTLP/HTTP `:4318`
 - **Splunk Distribution of OpenTelemetry Collector** — runs as a **Podman** container (`quay.io/signalfx/splunk-otel-collector:latest`) on `petclinic-net`; gateway mode that forwards to Splunk Observability Cloud (`realm=us1` by default)
-- **ActiveMQ/TIBCO EMS metrics** — not collected by the current Collector configuration. Broker statistics remain available through Jolokia on `:8161`, but `otel-tibco-metrics.yaml` does not query that endpoint.
+- **ActiveMQ/TIBCO EMS metrics** — broker and destination MBeans are read through internal JMX by `petclinic-activemq-exporter`, exposed as Prometheus metrics on `:9404`, scraped by the Collector, and forwarded to Splunk Observability Cloud.
 - **OpenTelemetry pipelines** — traces (OTLP/HTTP → Splunk), metrics (OTLP/HTTP → Splunk), logs (HEC, requires Log Observer)
 
 ### Runtime & Containerization
@@ -95,6 +99,7 @@ where `PREFIX = "petclinic.rpc."` is prepended to each operation suffix above.
   - Backend: `:8081`
   - TIBCO / ActiveMQ JMS: `:61616`
   - TIBCO / ActiveMQ Web Console: `:8161`
+  - ActiveMQ JMX Prometheus exporter: `:9404`
   - OTel Collector OTLP/gRPC: `:4317`
   - OTel Collector OTLP/HTTP: `:4318`
   - OTel Collector health: `:13133`
@@ -192,9 +197,9 @@ browser for quick links, or go straight to:
 Instead of shipping telemetry from each JVM straight to Splunk Observability
 Cloud, the apps export to a **local Splunk Distribution of the OpenTelemetry
 Collector** running as a Podman container on `petclinic-net`. The Collector fans
-application traces and OTLP metrics out to the cloud. It does **not** scrape
-TIBCO EMS (ActiveMQ) broker metrics; the broker's Jolokia statistics endpoint on
-`:8161` is available for a future/custom metrics integration:
+application traces and OTLP metrics out to the cloud and scrapes TIBCO EMS
+(ActiveMQ) broker metrics from the JMX Prometheus exporter. Jolokia on `:8161`
+remains available for direct health and status queries:
 
 ```mermaid
 flowchart LR
@@ -204,6 +209,8 @@ flowchart LR
     end
     BE -->|"OTLP http/protobuf<br/>localhost:4318"| COL
     FE -->|"OTLP http/protobuf<br/>localhost:4318"| COL
+    BROKER[ActiveMQ / TIBCO EMS<br/>JMX :1099] -->|JMX| EXP[JMX Prometheus Exporter<br/>:9404]
+    EXP -->|Prometheus scrape| COL
     COL["Splunk OTel Collector<br/>(Podman, gateway mode)"] -->|traces · otlp_http| Cloud[(Splunk Observability Cloud<br/>realm us1)]
     COL -->|metrics · otlp_http| Cloud
     COL -.->|logs · splunk_hec| Cloud
@@ -269,11 +276,11 @@ the Splunk exporters:
 | Pipeline  | Receivers                    | Processors              | Exporters                     |
 | --------- | ---------------------------- | ----------------------- | ----------------------------- |
 | `traces`  | `otlp`                     | `attributes`, `batch` | `otlp_http/traces`          |
-| `metrics` | `otlp`                     | `attributes`, `batch` | `otlp_http/metrics`, `debug` |
+| `metrics` | `otlp`, `prometheus/activemq` | `attributes`, `batch` | `otlp_http/metrics`, `debug` |
 
-> The current Splunk Collector image does not bundle either the native
-> `activemq` receiver or the legacy `collectd/activemq` Smart Agent monitor.
-> Adding either one causes the Collector to reject the configuration and exit.
+> The current Splunk Collector image does not bundle a native `activemq`
+> receiver. ActiveMQ metrics are collected through the JMX Prometheus exporter
+> sidecar and the standard Prometheus receiver instead.
 
 **Bundled export endpoints** (all derived from `SPLUNK_REALM`):
 
@@ -454,11 +461,12 @@ podman logs splunk-otel-collector 2>&1 | grep -aE 'splunk_hec|/v1/log|404|Droppi
 ### TIBCO EMS metrics
 
 TIBCO EMS is represented locally by an ActiveMQ broker. Its Jolokia statistics
-endpoint is available on `http://localhost:8161`, but the current
-[`otel-tibco-metrics.yaml`](otel-tibco-metrics.yaml) does not scrape or export
-those broker metrics. The Collector image used here does not include an
-ActiveMQ receiver or the legacy `collectd/activemq` monitor, so adding either
-receiver to this configuration would cause the Collector to reject the config.
+endpoint is available on `http://localhost:8161` for direct inspection. Broker
+JMX is exposed on the private `petclinic-net` port `1099`; the
+`petclinic-activemq-exporter` sidecar converts broker and destination MBeans to
+Prometheus metrics on port `9404`. The Collector's `prometheus/activemq`
+receiver scrapes that endpoint every 15 seconds and exports the metrics to
+Splunk Observability Cloud.
 
 #### Inspecting the broker through Jolokia
 
@@ -497,8 +505,29 @@ curl -u "$AMQ_USER:$AMQ_PASSWORD" \
   http://localhost:8161/api/jolokia/read/org.apache.activemq:type=Broker,brokerName=localhost | jq
 ```
 
-These Jolokia queries are for manual health and status inspection only. They
-do not feed metrics into the OTel Collector or Splunk Observability Cloud.
+These Jolokia queries are for manual health and status inspection. They are
+separate from the JMX-based metrics path used by the exporter.
+
+#### Inspecting exported Prometheus metrics
+
+The exporter is started automatically by `./run-all.sh tibco` or
+`./run-all-otel.sh tibco`. Its metrics endpoint is published at:
+
+```text
+http://localhost:9404/metrics
+```
+
+For example:
+
+```bash
+curl -fsS http://localhost:9404/metrics | grep -E '^(activemq_|jmx_scrape_)'
+```
+
+Stop the broker and exporter together with:
+
+```bash
+./stop-all.sh tibco
+```
 
 ### Backend or frontend cannot connect to TIBCO EMS
 
